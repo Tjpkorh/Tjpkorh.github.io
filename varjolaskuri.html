@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Shadow Length to Possible Positions</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  #map { height: 600px; }
+  #inputs { padding: 10px; background: #f0f0f0; }
+  label, input { margin: 5px; }
+</style>
+</head>
+<body>
+
+<div id="inputs">
+  <label for="datetime">Date & Time (UTC):</label>
+  <input type="datetime-local" id="datetime" />  
+  <label for="height">Object Height (meters):</label>
+  <input type="number" id="height" step="0.01" min="0" />
+  <label for="shadow">Shadow Length (meters):</label>
+  <input type="number" id="shadow" step="0.01" min="0" />
+  <button id="calculate">Calculate Positions</button>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/suncalc/suncalc.js"></script>
+<script>
+  // Initialize Leaflet map
+  const map = L.map('map').setView([0, 0], 2);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+
+  // Calculate sun elevation angle from object height and shadow length (radians)
+  function getElevationAngle(height, shadowLength) {
+    return Math.atan(height / shadowLength);
+  }
+
+  // Brute-force search of lat/lon where sun elevation matches target angle ± tolerance
+  // step is degrees to iterate latitude and longitude values (smaller = more precise)
+  // Tässä olevat step ja tolerance eivät vaikuta
+  function findPossiblePositions(date, targetElevationRad, step = 2, tolerance = 0.005) {
+    const positions = [];
+    for (let lon = -180; lon <= 180; lon += step) {
+      for (let lat = -90; lat <= 90; lat += step) {
+        const sunPos = SunCalc.getPosition(date, lat, lon);
+        const elevation = sunPos.altitude; // radians
+        if (Math.abs(elevation - targetElevationRad) < tolerance) {
+          positions.push([lat, lon]);
+        }
+      }
+    }
+    return positions;
+  }
+
+  let polyline = null;
+
+	// Haversine distance formula to calculate distance between two lat-lon points in meters
+	function haversineDistance(coords1, coords2) {
+	  const toRad = (x) => (x * Math.PI) / 180;
+	  const R = 6371e3; // Earth's radius in meters
+	  const lat1 = toRad(coords1[0]);
+	  const lat2 = toRad(coords2[0]);
+	  const deltaLat = toRad(coords2[0] - coords1[0]);
+	  const deltaLon = toRad(coords2[1] - coords1[1]);
+
+	  const a =
+		Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+		Math.cos(lat1) * Math.cos(lat2) *
+		Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
+
+	  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+	  const d = R * c; // Distance in meters
+	  return d;
+	}
+
+	// Function to sort an array of points based on distance from the first point in the list or a given reference point
+	function sortCoordinatesByProximity(coords) {
+	  let len = coords.length;
+	  let first = coords[0];
+	  let sorted = [];
+	  for (let i = 0; i < len; i++) {
+		  console.log(sorted);
+		  sorted[i] = coords[0]
+		  //coords.sort((a, b) => Math.sqrt((coords[0][0]-a[0])**2 + (coords[0][1]-a[1])**2) - Math.sqrt((coords[0][0]-b[0])**2 + (coords[0][1]-b[1])**2));
+		  coords.sort((a, b) => haversineDistance(a, coords[0]) - haversineDistance(b, coords[0]));
+		  coords.shift();
+	  }
+	  sorted[len] = first;
+	  //coords.sort((a, b) => haversineDistance(a, first) - haversineDistance(b, first));
+	  //coords.sort((a, b) => Math.sqrt((first[0]-a[0])**2 + (first[1]-a[1])**2) - Math.sqrt((first[0]-b[0])**2 + (first[1]-b[1])**2));
+	  //coords.sort(function(a, b){return (first[0]-a[0] + first[1]-a[1])**2 - (first[0]-b[0] + first[1]-b[1])**2});
+	  //coords.sort(function(a, b){return a[2] - b[2]});
+	  //console.log(coords);
+	  return sorted;
+	}
+
+
+  document.getElementById('calculate').onclick = () => {
+    const dateInput = document.getElementById('datetime').value;
+    const height = parseFloat(document.getElementById('height').value);
+    const shadow = parseFloat(document.getElementById('shadow').value);
+
+    if (!dateInput || !height || !shadow || height <= 0 || shadow <= 0) {
+      alert('Please enter valid date/time, object height, and shadow length.');
+      return;
+    }
+
+    const date = new Date(dateInput + 'Z'); // Ensure UTC
+    const elevationAngle = getElevationAngle(height, shadow);
+
+    let positions = findPossiblePositions(date, elevationAngle, 0.2, 0.0002); //Näiden vaihto vaikuttaa
+	
+	console.log("original");
+	console.log(positions);
+	
+	positions = sortCoordinatesByProximity(positions);
+
+    if (positions.length === 0) {
+      alert('No matching positions found for given inputs.');
+      return;
+    }
+
+    // Remove old polyline if exists
+    if (polyline) {
+      map.removeLayer(polyline);
+    }
+	console.log("sorted");
+	console.log(positions);
+    // Create a polyline from positions array
+    polyline = L.polyline(positions, { color: 'red', weight: 3 }).addTo(map);
+
+    // Fit map view to show the full polyline
+    map.fitBounds(polyline.getBounds());
+  };
+</script>
+
+</body>
+</html>
+

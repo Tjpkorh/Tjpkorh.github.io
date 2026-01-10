@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Shadow Length to Possible Positions</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  #map { height: 500px; }
+  #inputs { padding: 10px; background: #f0f0f0; }
+  label, input { margin: 5px; }
+</style>
+</head>
+<body>
+
+<div id="inputs">
+  <label for="datetime">Date & Time (UTC):</label>
+  <input type="datetime-local" id="datetime" />  
+  <label for="height">Object Height (meters):</label>
+  <input type="number" id="height" step="0.01" min="0" />
+  <label for="shadow">Shadow Length (meters):</label>
+  <input type="number" id="shadow" step="0.01" min="0" />
+  <button id="calculate">Calculate Positions</button>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/suncalc/suncalc.js"></script>
+<script>
+  // Initialize map
+  const map = L.map('map').setView([0, 0], 2);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+
+  function getElevationAngle(height, shadowLength) {
+    return Math.atan(height / shadowLength); // Radians
+  }
+
+  // Brute force search over latitudes and longitudes
+  function findPossiblePositions(date, targetElevationRad, step = 5, tolerance = 0.01) {
+    const positions = [];
+    for (let lon = -180; lon <= 180; lon += step) {
+      for (let lat = -90; lat <= 90; lat += step) {
+        const sunPos = SunCalc.getPosition(date, lat, lon);
+        const elevation = sunPos.altitude; // In radians
+        // Check if elevation matches target within tolerance
+        if (Math.abs(elevation - targetElevationRad) < tolerance) {
+          positions.push({lat, lon});
+        }
+      }
+    }
+    return positions;
+  }
+
+  document.getElementById('calculate').onclick = () => {
+    const dateInput = document.getElementById('datetime').value;
+    const height = parseFloat(document.getElementById('height').value);
+    const shadow = parseFloat(document.getElementById('shadow').value);
+
+    if (!dateInput || !height || !shadow || height <= 0 || shadow <= 0) {
+      alert('Please enter valid date/time, object height, and shadow length.');
+      return;
+    }
+
+    const date = new Date(dateInput + 'Z'); // Ensure UTC
+    const elevationAngleRad = getElevationAngle(height, shadow);
+
+    const positions = findPossiblePositions(date, elevationAngleRad, 0.2, 0.002);
+
+    // Clear existing markers
+    map.eachLayer(layer => {
+      if (layer instanceof L.CircleMarker) {
+        map.removeLayer(layer);
+      }
+    });
+
+    if (positions.length === 0) {
+      alert('No matching positions found for given inputs.');
+      return;
+    }
+
+    positions.forEach(pos => {
+      L.circleMarker([pos.lat, pos.lon], {
+        radius: 2,
+        color: 'red',
+        fillColor: 'red',
+        fillOpacity: 0.7,
+      }).addTo(map);
+    });
+
+    const avgLat = positions.reduce((sum, p) => sum + p.lat, 0) / positions.length;
+    const avgLon = positions.reduce((sum, p) => sum + p.lon, 0) / positions.length;
+    map.setView([avgLat, avgLon], 2);
+  };
+</script>
+
+</body>
+</html>
